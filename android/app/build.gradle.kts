@@ -71,7 +71,7 @@ dependencies {
   // https://firebase.google.com/docs/android/setup#available-libraries
 
   // MediaPipe LLM Inference for Gemma
-  implementation("com.google.mediapipe:tasks-genai:0.10.14")
+  implementation("com.google.mediapipe:tasks-genai:0.10.35")
 
   // Measure SDK
   implementation("sh.measure:measure-android:0.19.0")

@@ -100,8 +100,10 @@ class ProductCard extends StatelessWidget {
                     top: 16,
                     left: 16,
                     child: Row(
-                      children: tags.map((tag) {
-                        final isAvailable = tag.toLowerCase() == 'available';
+                      children: tags
+                          .where((tag) => tag.toLowerCase() != 'available')
+                          .map((tag) {
+                        final isAvailable = false;
                         return Container(
                           margin: const EdgeInsets.only(right: 8),
                           padding: const EdgeInsets.symmetric(
