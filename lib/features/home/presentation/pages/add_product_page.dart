@@ -7,7 +7,7 @@ import '../cubit/product_cubit.dart';
 import '../widgets/categories_widget.dart';
 import '../widgets/location_search_dialog.dart';
 import '../../../../core/services/local_ai_service.dart';
-
+import '../../../../core/services/model_download_service.dart';
 class AddProductPage extends StatefulWidget {
   const AddProductPage({super.key});
 
@@ -26,25 +26,134 @@ class _AddProductPageState extends State<AddProductPage> {
   final LocalAIService _aiService = NativeGemmaService(); // Using the native MethodChannel implementation!
   bool _isAiLoading = false;
   bool _isAiInitialized = false;
+  bool _isModelDownloaded = false;
+  bool _isDownloadingModel = false;
+  double _downloadProgress = 0.0;
 
   @override
   void initState() {
     super.initState();
-    _initAIService();
+    _checkAndInitAI();
   }
 
-  Future<void> _initAIService() async {
-    // Note: mediapipe_genai requires an absolute file path. 
-    // Once you place the model in assets/models/gemma.task, 
-    // you would typically copy it to getApplicationDocumentsDirectory() here, 
-    // and pass the absolute path to initialize().
-    // We pass the filename of the model inside assets/models/
-    await _aiService.initialize('gemma-2b-it-gpu-int4.bin');
+  Future<void> _checkAndInitAI() async {
+    final downloaded = await ModelDownloadService.isModelDownloaded();
     if (mounted) {
       setState(() {
-        _isAiInitialized = true;
+        _isModelDownloaded = downloaded;
       });
     }
+
+    if (downloaded) {
+      final path = await ModelDownloadService.getModelPath();
+      try {
+        final success = await _aiService.initialize(path);
+        if (mounted) {
+          setState(() {
+            _isAiInitialized = success;
+          });
+          if (!success) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Failed to initialize AI model. Your device might lack the RAM or GPU to run it.'),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
+        }
+      } catch (e) {
+        if (mounted) {
+          setState(() {
+            _isAiInitialized = false;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('AI Initialization Error: $e'),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 5),
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  void _promptAiDownload() {
+    if (_isModelDownloaded) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('AI Model is already downloaded and ready!'),
+          backgroundColor: Color(0xFF0F4C3A),
+        ),
+      );
+      return;
+    }
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Download AI Model'),
+        content: const Text('To use the auto-complete feature, you need to download the AI model.\n\nDo you want to download it now?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _startDownload();
+            },
+            child: const Text('Download', style: TextStyle(color: Color(0xFF0F4C3A))),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _startDownload() {
+    setState(() {
+      _isDownloadingModel = true;
+      _downloadProgress = 0.0;
+    });
+    
+    ModelDownloadService.downloadModel(
+      onProgress: (received, total) {
+        if (mounted && total > 0) {
+          setState(() {
+            _downloadProgress = received / total;
+          });
+        }
+      },
+      onSuccess: () async {
+        if (mounted) {
+          setState(() {
+            _isDownloadingModel = false;
+            _isModelDownloaded = true;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('AI Model downloaded successfully!'),
+              backgroundColor: Color(0xFF0F4C3A),
+            ),
+          );
+          await _checkAndInitAI();
+        }
+      },
+      onError: (error) {
+        if (mounted) {
+          setState(() {
+            _isDownloadingModel = false;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Failed to download AI model: $error'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      },
+    );
   }
 
   final List<XFile> _selectedImages = [];
@@ -395,8 +504,9 @@ class _AddProductPageState extends State<AddProductPage> {
               Padding(
                 padding: const EdgeInsets.all(24.0),
                 child: Row(
-                  children: const [
-                    Text(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
                       'Create Listing',
                       style: TextStyle(
                         fontSize: 28,
@@ -405,6 +515,37 @@ class _AddProductPageState extends State<AddProductPage> {
                         letterSpacing: -0.5,
                       ),
                     ),
+                    if (_isDownloadingModel)
+                      Row(
+                        children: [
+                          Text(
+                            '${(_downloadProgress * 100).toStringAsFixed(0)}%',
+                            style: const TextStyle(
+                              color: Color(0xFF0F4C3A),
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(
+                              value: _downloadProgress,
+                              strokeWidth: 3,
+                              color: const Color(0xFF0F4C3A),
+                            ),
+                          ),
+                        ],
+                      )
+                    else
+                      IconButton(
+                        icon: Icon(
+                          _isModelDownloaded ? Icons.auto_awesome : Icons.cloud_download_outlined,
+                          color: _isModelDownloaded ? const Color(0xFF0F4C3A) : Colors.grey,
+                        ),
+                        onPressed: _promptAiDownload,
+                        tooltip: 'Download AI Model',
+                      ),
                   ],
                 ),
               ),
@@ -532,35 +673,36 @@ class _AddProductPageState extends State<AddProductPage> {
                         icon: Icons.title,
                       ),
                       const SizedBox(height: 12),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: TextButton.icon(
-                          onPressed: (_isAiLoading || !_isAiInitialized) ? null : _generateWithAI,
-                          icon: _isAiLoading
-                              ? const SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
-                                )
-                              : const Icon(Icons.auto_awesome, color: Color(0xFF0F4C3A)),
-                          label: Text(
-                            _isAiLoading 
-                                ? 'Generating...' 
-                                : (!_isAiInitialized ? 'Loading AI...' : 'Auto-Complete with AI'),
-                            style: const TextStyle(
-                              color: Color(0xFF0F4C3A),
-                              fontWeight: FontWeight.bold,
+                      if (_isModelDownloaded)
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton.icon(
+                            onPressed: (_isAiLoading || !_isAiInitialized) ? null : _generateWithAI,
+                            icon: _isAiLoading
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  )
+                                : const Icon(Icons.auto_awesome, color: Color(0xFF0F4C3A)),
+                            label: Text(
+                              _isAiLoading 
+                                  ? 'Generating...' 
+                                  : (!_isAiInitialized ? 'Loading AI...' : 'Auto-Complete with AI'),
+                              style: const TextStyle(
+                                color: Color(0xFF0F4C3A),
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
-                          ),
-                          style: TextButton.styleFrom(
-                            backgroundColor: const Color(0xFFE8F4F8),
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(20),
+                            style: TextButton.styleFrom(
+                              backgroundColor: const Color(0xFFE8F4F8),
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(20),
+                              ),
                             ),
                           ),
                         ),
-                      ),
                       const SizedBox(height: 12),
 
                       _buildTextField(

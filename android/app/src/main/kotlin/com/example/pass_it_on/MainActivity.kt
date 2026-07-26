@@ -41,7 +41,7 @@ class MainActivity : FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, METHOD_CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
                 "initialize" -> {
-                    val modelName = call.argument<String>("modelName") ?: "gemma-2b-it-gpu-int4.bin"
+                    val modelName = call.argument<String>("modelName") ?: "gemma3-1B-it-int4.task"
                     initializeModel(modelName, result)
                 }
                 "generateResponse" -> {
@@ -68,27 +68,19 @@ class MainActivity : FlutterActivity() {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 // MediaPipe LLM Inference currently requires an absolute file path. 
-                // We copy the asset to the internal storage cache directory to get an absolute path.
-                val modelFile = File(context.cacheDir, modelName)
+                // We check if it's already an absolute path that exists.
+                var modelFile = File(modelName)
                 if (!modelFile.exists()) {
-                    copyAssetToFile(modelName, modelFile)
+                    // Fallback to asset copy logic for backwards compatibility
+                    modelFile = File(context.cacheDir, modelName)
+                    if (!modelFile.exists()) {
+                        copyAssetToFile(modelName, modelFile)
+                    }
                 }
 
                 val options = LlmInference.LlmInferenceOptions.builder()
                     .setModelPath(modelFile.absolutePath)
                     .setMaxTokens(512)
-                    .setTemperature(0.8f)
-                    .setTopK(40)
-                    .setResultListener { partialResult, done ->
-                        CoroutineScope(Dispatchers.Main).launch {
-                            if (partialResult != null) {
-                                eventSink?.success(partialResult)
-                            }
-                            if (done) {
-                                eventSink?.success("[DONE]")
-                            }
-                        }
-                    }
                     .build()
 
                 llmInference = LlmInference.createFromOptions(context, options)
@@ -114,7 +106,16 @@ class MainActivity : FlutterActivity() {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 // Async generation emits to the event sink configured during initialization.
-                llmInference?.generateResponseAsync(prompt)
+                llmInference?.generateResponseAsync(prompt) { partialResult: String?, done: Boolean ->
+                    CoroutineScope(Dispatchers.Main).launch {
+                        if (partialResult != null) {
+                            eventSink?.success(partialResult)
+                        }
+                        if (done) {
+                            eventSink?.success("[DONE]")
+                        }
+                    }
+                }
                 withContext(Dispatchers.Main) {
                     result.success(true)
                 }

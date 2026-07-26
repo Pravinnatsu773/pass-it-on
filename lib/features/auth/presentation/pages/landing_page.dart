@@ -17,9 +17,6 @@ class _LandingPageState extends State<LandingPage> {
   @override
   void initState() {
     super.initState();
-    Future.delayed(const Duration(seconds: 2), () {
-      throw Exception('Test crash from Measure onboarding');
-    });
   }
 
   @override

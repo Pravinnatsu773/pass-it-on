@@ -49,6 +49,7 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+            proguardFiles(getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro")
         }
     }
 }
@@ -71,7 +72,7 @@ dependencies {
   // https://firebase.google.com/docs/android/setup#available-libraries
 
   // MediaPipe LLM Inference for Gemma
-  implementation("com.google.mediapipe:tasks-genai:0.10.14")
+  implementation("com.google.mediapipe:tasks-genai:0.10.35")
 
   // Measure SDK
   implementation("sh.measure:measure-android:0.19.0")
